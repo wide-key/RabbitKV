@@ -102,7 +102,7 @@ func RunFuzz(cfg *FuzzConfig, roundCount int, randFilename string) {
 	db := key64.NewDB()
 	for i := 0; i < roundCount; i++ {
 		if i % 100 == 0 {
-			fmt.Printf("now round %d\n", i)
+			fmt.Printf("now round %d %f\n", i, float64(len(refMap))/float64(db.NumUsedEntries()))
 		}
 		if len(refMap) < cfg.MaxSize {
 			//fmt.Printf("FuzzSet\n")
@@ -137,6 +137,13 @@ func main() {
 		RunSteps:        100,
 		CompareInterval: 1000,
 	}
+
+	//cfg = &FuzzConfig{
+	//	MaxSize:         256*256/128,
+	//	MinSize:         256*256/256,
+	//	RunSteps:        100,
+	//	CompareInterval: 1000,
+	//}
 
 	RunFuzz(cfg, roundCount, randFilename)
 }
