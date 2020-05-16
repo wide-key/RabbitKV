@@ -42,37 +42,27 @@ func (db *DB) NumUsedEntries() int {
 var TheKey = []byte{224, 199, 23, 63, 67, 252, 54, 110, 198, 250, 189, 26, 18, 160, 19, 230}
 
 func (db *DB) Get(key []byte) (value []byte, ok bool) {
-	value, path := db.find(key, true)
-	ok = path.status == Exists
+	value, _, status := db.find(key, true)
+	ok = status == Exists
 	return
 }
 
-type Path struct {
-	keyList       [][KeySize]byte
-	status        int
-	firstEmptyPos int
-}
-
-func (db *DB) find(key []byte, earlyExit bool) (value []byte, path Path) {
+func (db *DB) find(key []byte, earlyExit bool) (value []byte, path [][KeySize]byte, status int) {
 	var k [KeySize]byte
 	hash := sha256.Sum256(key)
-	path.status = NotFount
-	path.firstEmptyPos = -1
+	status = NotFount
 	for i := 0; i < MaxFindDepth; i++ {
 		copy(k[:], hash[:])
-		path.keyList = append(path.keyList, k)
+		path = append(path, k)
 		vx, foundIt := db.m[k]
 		if !foundIt {
 			return
 		}
-		if vx.deleted && path.firstEmptyPos < 0 {
-			path.firstEmptyPos = i
-		}
 		if bytes.Equal(vx.key, key) {
 			value = vx.value
-			path.status = Exists
+			status = Exists
 			if vx.deleted {
-				path.status = EmptySlot
+				status = EmptySlot
 			}
 			return
 		} else if earlyExit && vx.passByNum == 0 {
@@ -93,18 +83,17 @@ func isWatched(k [KeySize]byte) bool {
 }
 
 func (db *DB) Set(key []byte, value []byte) {
-	_, path := db.find(key, false)
-	kl := path.keyList
-	if path.status == Exists { //change
-		db.m[kl[len(kl)-1]].value = append([]byte{}, value...)
+	_, path, status := db.find(key, false)
+	if status == Exists { //change
+		db.m[path[len(path)-1]].value = append([]byte{}, value...)
 		return
 	}
-	if path.status == EmptySlot { //overwrite
-		db.m[kl[len(kl)-1]].key = append([]byte{}, key...)
-		db.m[kl[len(kl)-1]].value = append([]byte{}, value...)
-		db.m[kl[len(kl)-1]].deleted = false
+	if status == EmptySlot { //overwrite
+		db.m[path[len(path)-1]].key = append([]byte{}, key...)
+		db.m[path[len(path)-1]].value = append([]byte{}, value...)
+		db.m[path[len(path)-1]].deleted = false
 	} else { //insert
-		db.m[kl[len(kl)-1]] = &ValueX{
+		db.m[path[len(path)-1]] = &ValueX{
 			key:       append([]byte{}, key...),
 			value:     append([]byte{}, value...),
 			passByNum: 0,
@@ -112,23 +101,22 @@ func (db *DB) Set(key []byte, value []byte) {
 		}
 	}
 	// incr passByNum
-	for _, k := range kl[:len(kl)-1] {
+	for _, k := range path[:len(path)-1] {
 		db.m[k].passByNum++
 	}
 }
 
 func (db *DB) Delete(key []byte) {
-	_, path := db.find(key, true)
-	kl := path.keyList
-	if path.status != Exists {
+	_, path, status := db.find(key, true)
+	if status != Exists {
 		return
 	}
-	if db.m[kl[len(kl)-1]].passByNum == 0 { // can delete it
-		delete(db.m, kl[len(kl)-1])
+	if db.m[path[len(path)-1]].passByNum == 0 { // can delete it
+		delete(db.m, path[len(path)-1])
 	} else { // can not delete it, just mark it as deleted
-		db.m[kl[len(kl)-1]].deleted = true
+		db.m[path[len(path)-1]].deleted = true
 	}
-	for _, k := range kl[:len(kl)-1] {
+	for _, k := range path[:len(path)-1] {
 		db.m[k].passByNum--
 		if db.m[k].passByNum == 0 && db.m[k].deleted {
 			delete(db.m, k)
